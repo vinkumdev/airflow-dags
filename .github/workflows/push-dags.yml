@@ -1,0 +1,22 @@
+name: Deploy DAGs to Airflow
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-dags:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Copy DAGs to Airflow server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ec2-user
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "dags/*"
+          target: "/home/ec2-user/apps/airflow/airflow_home/dags"

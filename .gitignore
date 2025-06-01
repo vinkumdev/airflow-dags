@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# macOS files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python virtual environments
+venv/
+.env/
+env/
+.venv/
+
+# PyCharm project files
+.idea/
+
+# Logs
+*.log
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Airflow files
+airflow.db
+airflow-webserver.pid
+logs/
+unittests.cfg
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# System files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# MySQL dumps or sensitive configs (optional)
+*.sql
+*.env
