@@ -12,7 +12,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Copy DAGs to Airflow server
       - name: Copy DAGs to Airflow server
         uses: appleboy/scp-action@v0.1.4
         with:
@@ -22,8 +21,17 @@ jobs:
           source: "dags/*"
           target: "/home/ec2-user/apps/airflow/airflow_home/dags"
 
-      # Copy plugins to Airflow server
-      - name: Copy plugins to Airflow server
+      - name: Check if plugins folder exists
+        id: check_plugins
+        run: |
+          if [ -d "plugins" ] && [ "$(ls -A plugins)" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy plugins to Airflow server (if exists)
+        if: steps.check_plugins.outputs.exists == 'true'
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.AWS_HOST }}
@@ -32,7 +40,6 @@ jobs:
           source: "plugins/*"
           target: "/home/ec2-user/apps/airflow/airflow_home/plugins"
 
-      # Restart DAG processor to pick up changes
       - name: Restart DAG processor
         uses: appleboy/ssh-action@v0.1.6
         with:
