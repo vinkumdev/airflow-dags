@@ -6,7 +6,7 @@ def hello_world():
     print("Hello, Airflow 3!")
 
 dag = DAG(
-    dag_id="hello_world_example1",
+    dag_id="hello_world_example",
     start_date=datetime(2024, 1, 1),
     schedule="@daily",
     catchup=False,
