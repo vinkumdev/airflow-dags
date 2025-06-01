@@ -19,6 +19,13 @@ jobs:
           username: ec2-user
           key: ${{ secrets.DEPLOY_KEY }}
           source: "dags/*"
-          target: "/home/ec2-user/apps/airflow/airflow_home"
+          target: "/home/ec2-user/apps/airflow/airflow_home/dags"
+
+      - name: Restart DAG processor
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ec2-user
+          key: ${{ secrets.DEPLOY_KEY }}
           script: |
             sudo systemctl restart airflow-dag-processor
