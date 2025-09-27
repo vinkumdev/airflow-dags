@@ -20,7 +20,7 @@ def query_postgres():
 with DAG(
         dag_id="postgres_query_example",
         start_date=datetime(2023, 1, 1),
-        schedule_interval=None,  # Run manually
+        schedule="@daily",
         catchup=False,
 ) as dag:
     query_task = PythonOperator(
