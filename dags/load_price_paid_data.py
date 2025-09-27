@@ -107,6 +107,12 @@ with DAG(
 
         df = pd.read_csv(CSV_PATH)
 
+        # Convert date_of_transfer to YYYYMMDD integer
+        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer']).dt.strftime('%Y%m%d').astype(int)
+
+        # Remove curly braces from transaction_unique_identifier
+        df['transaction_unique_identifier'] = df['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
+
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         conn = hook.get_conn()
         cursor = conn.cursor()
@@ -128,6 +134,7 @@ with DAG(
         cursor.close()
         conn.close()
         print("CSV loaded into Postgres successfully.")
+
 
     # Task 4: Send success notification
     def send_success_notification():
