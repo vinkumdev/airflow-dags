@@ -10,7 +10,7 @@ import json
 # Config
 CSV_URL = "http://prod.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com/pp-monthly-update-new-version.csv"
 POSTGRES_CONN_ID = "oxproperties_postgres"
-TABLE_NAME = "price_paid_data"
+TABLE_NAME = "price_paid"
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1421529157560434728/QhHlXRPjx6HvOmCsCw2N0cot7WHxDMSiI97nF8tw9xvth3dnCgONNYYu9b1fCM1NuPmT"
 
 # Default args
@@ -39,7 +39,7 @@ def on_failure(context):
 
 # DAG
 with DAG(
-    dag_id="load_price_paid_data_safe",
+    dag_id="load_price_paid_data",
     default_args=default_args,
     schedule="0 2 25 * *",
     start_date=datetime(2025, 9, 25),
