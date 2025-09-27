@@ -2,7 +2,7 @@ from airflow import DAG
 from datetime import datetime, timedelta
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.http.operators.http import SimpleHttpOperator
+import requests
 import requests
 import pandas as pd
 import io
@@ -79,10 +79,11 @@ with DAG(
         cursor.close()
         conn.close()
 
+
     def send_discord_notification():
-        data = {"content": "✅ Price Paid Data loaded successfully into Postgres!"}
-        response = requests.post(DISCORD_WEBHOOK, data=json.dumps(data), headers={"Content-Type": "application/json"})
-        response.raise_for_status()
+        webhook_url = "https://discord.com/api/webhooks/your_webhook_here"
+        data = {"content": "✅ Price Paid Data loaded successfully!"}
+        requests.post(webhook_url, data=json.dumps(data), headers={"Content-Type": "application/json"})
 
     load_task = PythonOperator(
         task_id="download_and_load_csv",
