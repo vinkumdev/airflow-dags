@@ -1,5 +1,5 @@
 from airflow import DAG
-from airflow.utils.dates import days_ago
+from datetime import datetime, timedelta
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.http.operators.http import SimpleHttpOperator
@@ -26,7 +26,7 @@ with DAG(
     dag_id="load_price_paid_data",
     default_args=default_args,
     schedule="0 2 25 * *",  # 25th of each month at 02:00 UTC
-    start_date=days_ago(1),
+    start_date=datetime.now() - timedelta(days=1),
     catchup=False,
     tags=["land_registry", "postgres"],
 ) as dag:
