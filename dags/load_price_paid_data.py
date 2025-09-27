@@ -6,11 +6,13 @@ import requests
 import pandas as pd
 import io
 import json
+import os
 
 # Config
 CSV_URL = "http://prod.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com/pp-monthly-update-new-version.csv"
+CSV_PATH = "/tmp/pp_monthly.csv"  # temporary local path
 POSTGRES_CONN_ID = "oxproperties_postgres"
-TABLE_NAME = "price_paid"
+TABLE_NAME = "price_paid_test"
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1421529157560434728/QhHlXRPjx6HvOmCsCw2N0cot7WHxDMSiI97nF8tw9xvth3dnCgONNYYu9b1fCM1NuPmT"
 
 # Default args
@@ -39,7 +41,7 @@ def on_failure(context):
 
 # DAG
 with DAG(
-    dag_id="load_price_paid_data",
+    dag_id="load_price_paid_data_separated",
     default_args=default_args,
     schedule="0 2 25 * *",
     start_date=datetime(2025, 9, 25),
@@ -47,18 +49,23 @@ with DAG(
     tags=["land_registry", "postgres"],
 ) as dag:
 
-    def download_and_load():
-        # Download CSV
+    def download_csv():
         response = requests.get(CSV_URL)
-        response.raise_for_status()  # Will raise exception if download fails
-        df = pd.read_csv(io.StringIO(response.text))
+        response.raise_for_status()
+        with open(CSV_PATH, "w", encoding="utf-8") as f:
+            f.write(response.text)
+        print(f"CSV downloaded to {CSV_PATH}")
 
-        # Connect to Postgres
+    def load_csv_to_postgres():
+        if not os.path.exists(CSV_PATH):
+            raise FileNotFoundError(f"{CSV_PATH} not found. Did download_csv task run successfully?")
+
+        df = pd.read_csv(CSV_PATH)
+
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         conn = hook.get_conn()
         cursor = conn.cursor()
 
-        # Create table if not exists
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
                 transaction_unique_identifier TEXT PRIMARY KEY,
@@ -81,7 +88,6 @@ with DAG(
         """)
         conn.commit()
 
-        # Insert row by row
         for row in df.itertuples(index=False, name=None):
             try:
                 cursor.execute(f"""
@@ -98,14 +104,22 @@ with DAG(
         conn.commit()
         cursor.close()
         conn.close()
+        print("CSV loaded into Postgres successfully.")
 
     def send_success_notification():
         send_discord_message("✅ Price Paid Data loaded successfully!")
 
+    # Tasks
+    download_task = PythonOperator(
+        task_id="download_csv",
+        python_callable=download_csv,
+        on_failure_callback=on_failure
+    )
+
     load_task = PythonOperator(
-        task_id="download_and_load_csv",
-        python_callable=download_and_load,
-        on_failure_callback=on_failure  # Sends failure notification if task fails
+        task_id="load_csv_to_postgres",
+        python_callable=load_csv_to_postgres,
+        on_failure_callback=on_failure
     )
 
     notify_task = PythonOperator(
@@ -113,4 +127,5 @@ with DAG(
         python_callable=send_success_notification
     )
 
-    load_task >> notify_task
+    # Task dependencies
+    download_task >> load_task >> notify_task
