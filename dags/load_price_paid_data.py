@@ -4,9 +4,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.providers.standard.operators.python import PythonOperator
 import requests
 import pandas as pd
-import io
-import json
 import os
+import json
 
 # Config
 CSV_URL = "http://prod.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com/pp-monthly-update-new-version.csv"
@@ -105,10 +104,23 @@ with DAG(
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"{CSV_PATH} not found. Did download_csv task run successfully?")
 
-        df = pd.read_csv(CSV_PATH)
+        # Read CSV with BOM handling and strip headers
+        df = pd.read_csv(CSV_PATH, encoding='utf-8-sig')
+        df.columns = df.columns.str.strip()  # remove leading/trailing spaces
+
+        expected_cols = [
+            "transaction_unique_identifier","price","date_of_transfer","postcode",
+            "property_type","old_new","duration","paon","saon","street",
+            "locality","town_city","district","county","ppd_category_type","record_status"
+        ]
+
+        missing_cols = [c for c in expected_cols if c not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing expected columns in CSV: {missing_cols}")
 
         # Convert date_of_transfer to YYYYMMDD integer
-        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer']).dt.strftime('%Y%m%d').astype(int)
+        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
+        df = df.dropna(subset=['date_of_transfer'])
 
         # Remove curly braces from transaction_unique_identifier
         df['transaction_unique_identifier'] = df['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
@@ -134,7 +146,6 @@ with DAG(
         cursor.close()
         conn.close()
         print("CSV loaded into Postgres successfully.")
-
 
     # Task 4: Send success notification
     def send_success_notification():
