@@ -15,7 +15,7 @@ POSTGRES_CONN_ID = "oxproperties_postgres"
 TABLE_NAME = "price_paid"
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1421529157560434728/QhHlXRPjx6HvOmCsCw2N0cot7WHxDMSiI97nF8tw9xvth3dnCgONNYYu9b1fCM1NuPmT"
 
-# Expected columns (for CSV without header)
+# Expected columns (CSV without header)
 COLUMN_NAMES = [
     "transaction_unique_identifier","price","date_of_transfer","postcode",
     "property_type","old_new","duration","paon","saon","street",
@@ -75,11 +75,11 @@ with DAG(
                 CREATE TABLE {TABLE_NAME} (
                     transaction_unique_identifier TEXT PRIMARY KEY,
                     price NUMERIC,
-                    date_of_transfer DATE,
-                    postcode TEXT,
-                    property_type TEXT,
-                    old_new TEXT,
-                    duration TEXT,
+                    date_of_transfer BIGINT,
+                    postcode CHAR(10),
+                    property_type CHAR(1),
+                    old_new CHAR(1),
+                    duration CHAR(1),
                     paon TEXT,
                     saon TEXT,
                     street TEXT,
@@ -87,9 +87,10 @@ with DAG(
                     town_city TEXT,
                     district TEXT,
                     county TEXT,
-                    ppd_category_type TEXT,
-                    record_status TEXT
+                    ppd_category_type CHAR(1),
+                    record_status CHAR(1)
                 );
+                CREATE INDEX idx_postcode ON {TABLE_NAME} (postcode);
             """)
             conn.commit()
             print(f"Table {TABLE_NAME} created successfully")
@@ -107,7 +108,7 @@ with DAG(
             f.write(response.text)
         print(f"CSV downloaded to {CSV_PATH}")
 
-
+    # Task 3: Load CSV into Postgres
     def load_csv_to_postgres():
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"{CSV_PATH} not found. Did download_csv task run successfully?")
@@ -118,17 +119,17 @@ with DAG(
 
         # Clean data
         df['transaction_unique_identifier'] = df['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
-        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.date
+        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
         df['price'] = pd.to_numeric(df['price'], errors='coerce')
 
-        # Drop rows with essential missing data
+        # Keep only essential rows
         df = df.dropna(subset=['transaction_unique_identifier', 'date_of_transfer', 'price'])
 
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         conn = hook.get_conn()
         cursor = conn.cursor()
 
-        batch_size = 10000  # insert 10k rows per batch
+        batch_size = 10000
         total_rows = len(df)
         for i in range(0, total_rows, batch_size):
             batch_df = df.iloc[i:i + batch_size]
@@ -152,8 +153,14 @@ with DAG(
 
         cursor.close()
         conn.close()
-        print("CSV loaded into Postgres successfully (with batch insert).")
+        print("CSV loaded into Postgres successfully.")
 
+        # Delete CSV after loading
+        try:
+            os.remove(CSV_PATH)
+            print(f"Deleted CSV file {CSV_PATH}")
+        except Exception as e:
+            print(f"Could not delete CSV file {CSV_PATH}: {e}")
 
     # Task 4: Send success notification
     def send_success_notification():
