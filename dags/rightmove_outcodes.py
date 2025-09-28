@@ -49,7 +49,7 @@ def ensure_table_exists():
 # Fetch a batch of random unprocessed outcodes
 def fetch_random_outcodes(cursor, limit=BATCH_SIZE):
     cursor.execute(
-        "SELECT rightmove_areas FROM outcodes WHERE area_id IS NULL OR area_id = 0 ORDER BY RANDOM() LIMIT %s",
+        "SELECT oucode FROM rightmove_areas WHERE area_id IS NULL OR area_id = 0 ORDER BY RANDOM() LIMIT %s",
         (limit,),
     )
     return [row[0] for row in cursor.fetchall()]
