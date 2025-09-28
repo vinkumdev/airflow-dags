@@ -9,10 +9,17 @@ import json
 
 # Config
 CSV_URL = "http://prod.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com/pp-monthly-update-new-version.csv"
-CSV_PATH = "/tmp/pp_monthly.csv"  # temporary local path
+CSV_PATH = "/tmp/pp_monthly.csv"
 POSTGRES_CONN_ID = "oxproperties_postgres"
 TABLE_NAME = "price_paid"
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1421529157560434728/QhHlXRPjx6HvOmCsCw2N0cot7WHxDMSiI97nF8tw9xvth3dnCgONNYYu9b1fCM1NuPmT"
+
+# Expected columns (for CSV without header)
+COLUMN_NAMES = [
+    "transaction_unique_identifier","price","date_of_transfer","postcode",
+    "property_type","old_new","duration","paon","saon","street",
+    "locality","town_city","district","county","ppd_category_type","record_status"
+]
 
 # Default args
 default_args = {
@@ -104,25 +111,15 @@ with DAG(
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"{CSV_PATH} not found. Did download_csv task run successfully?")
 
-        # Read CSV with BOM handling and strip headers
-        df = pd.read_csv(CSV_PATH, encoding='utf-8-sig')
-        df.columns = df.columns.str.strip()  # remove leading/trailing spaces
-
-        expected_cols = [
-            "transaction_unique_identifier","price","date_of_transfer","postcode",
-            "property_type","old_new","duration","paon","saon","street",
-            "locality","town_city","district","county","ppd_category_type","record_status"
-        ]
-
-        missing_cols = [c for c in expected_cols if c not in df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing expected columns in CSV: {missing_cols}")
+        # Read CSV without header, assign column names
+        df = pd.read_csv(CSV_PATH, header=None, names=COLUMN_NAMES, encoding='utf-8-sig')
+        df.columns = df.columns.str.strip()  # remove extra spaces
 
         # Convert date_of_transfer to YYYYMMDD integer
         df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
         df = df.dropna(subset=['date_of_transfer'])
 
-        # Remove curly braces from transaction_unique_identifier
+        # Clean transaction_unique_identifier
         df['transaction_unique_identifier'] = df['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
 
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
