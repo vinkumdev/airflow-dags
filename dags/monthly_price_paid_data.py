@@ -48,7 +48,7 @@ def on_failure(context):
 
 # DAG
 with DAG(
-    dag_id="load_price_paid_data_full",
+    dag_id="monthly_price_paid_data",
     default_args=default_args,
     schedule="0 2 25 * *",
     start_date=datetime(2025, 9, 25),
