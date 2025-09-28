@@ -106,43 +106,53 @@ with DAG(
             f.write(response.text)
         print(f"CSV downloaded to {CSV_PATH}")
 
-    # Task 3: Load CSV into Postgres
+
     def load_csv_to_postgres():
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"{CSV_PATH} not found. Did download_csv task run successfully?")
 
-        # Read CSV without header, assign column names
+        # Read CSV without header
         df = pd.read_csv(CSV_PATH, header=None, names=COLUMN_NAMES, encoding='utf-8-sig')
         df.columns = df.columns.str.strip()  # remove extra spaces
 
-        # Convert date_of_transfer to YYYYMMDD integer
-        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
-        df = df.dropna(subset=['date_of_transfer'])
-
-        # Clean transaction_unique_identifier
+        # Clean data
         df['transaction_unique_identifier'] = df['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
+        df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.date
+        df['price'] = pd.to_numeric(df['price'], errors='coerce')
+
+        # Drop rows with essential missing data
+        df = df.dropna(subset=['transaction_unique_identifier', 'date_of_transfer', 'price'])
 
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         conn = hook.get_conn()
         cursor = conn.cursor()
 
-        for row in df.itertuples(index=False, name=None):
+        batch_size = 10000  # insert 10k rows per batch
+        total_rows = len(df)
+        for i in range(0, total_rows, batch_size):
+            batch_df = df.iloc[i:i + batch_size]
+            rows = [tuple(x) for x in batch_df.to_numpy()]
+
             try:
-                cursor.execute(f"""
+                query = f"""
                     INSERT INTO {TABLE_NAME} (
                         transaction_unique_identifier, price, date_of_transfer, postcode,
                         property_type, old_new, duration, paon, saon, street,
                         locality, town_city, district, county, ppd_category_type, record_status
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ) VALUES %s
                     ON CONFLICT (transaction_unique_identifier) DO NOTHING;
-                """, row)
+                """
+                execute_values(cursor, query, rows)
+                conn.commit()
+                print(f"Inserted batch {i} to {i + len(rows)} successfully.")
             except Exception as e:
-                print(f"Skipping row {row[0]} due to error: {e}")
+                conn.rollback()
+                print(f"Batch {i} failed due to {e}. Skipping this batch and continuing.")
 
-        conn.commit()
         cursor.close()
         conn.close()
-        print("CSV loaded into Postgres successfully.")
+        print("CSV loaded into Postgres successfully (with batch insert).")
+
 
     # Task 4: Send success notification
     def send_success_notification():
