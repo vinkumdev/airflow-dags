@@ -110,6 +110,7 @@ def fetch_page_properties(base_url, params, headers):
     """
     try:
         resp = requests.get(base_url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+        print("Full URL requested:", resp.url)
         resp.raise_for_status()
     except Exception as e:
         print(f"HTTP error fetching {params.get('searchLocation')} index {params.get('index')}: {e}")
