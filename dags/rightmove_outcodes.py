@@ -8,8 +8,9 @@ import time
 # Config
 API_URL = "https://los.rightmove.co.uk/typeahead"
 POSTGRES_CONN_ID = "oxproperties_postgres"
-BATCH_SIZE = 10  # number of outcodes per DAG run
-SLEEP_BETWEEN = 1  # seconds between API calls
+BATCH_SIZE = 50        # increase if you want to process more each run
+SLEEP_BETWEEN = 1      # seconds between API calls to be gentle
+MARK_NO_MATCH_ID = -1  # r_id to set when no OUTCODE match found (optional)
 
 default_args = {
     "owner": "airflow",
@@ -18,28 +19,24 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
 }
 
-# Helper functions
-def send_discord_message(message: str):
-    # Optional: add Discord notifications if needed
-    print(message)
+def send_discord_message(msg: str):
+    # Optional: hook this up to your webhook or remove
+    print(msg)
 
 def on_failure(context):
     task = context.get("task_instance")
     dag_id = context.get("dag").dag_id
     send_discord_message(f"❌ DAG `{dag_id}` task `{task.task_id}` failed!")
 
+# Ensure table exists (r_id as BIGINT for safety)
 def ensure_table_exists():
-    """
-    Create 'outcodes' table if it doesn't exist
-    """
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     conn = hook.get_conn()
     cursor = conn.cursor()
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS outcodes (
             outcode TEXT PRIMARY KEY,
-            r_id INTEGER,
+            r_id BIGINT,
             display_name TEXT
         );
     """)
@@ -48,23 +45,34 @@ def ensure_table_exists():
     conn.close()
     print("Table 'outcodes' is ready.")
 
+# Fetch a batch of random unprocessed outcodes
 def fetch_random_outcodes(cursor, limit=BATCH_SIZE):
     cursor.execute(
-        f"SELECT outcode FROM outcodes WHERE r_id IS NULL OR r_id = 0 ORDER BY RANDOM() LIMIT {limit}"
+        "SELECT outcode FROM outcodes WHERE r_id IS NULL OR r_id = 0 ORDER BY RANDOM() LIMIT %s",
+        (limit,),
     )
     return [row[0] for row in cursor.fetchall()]
 
+# Update outcodes using case-insensitive match on outcode
 def update_outcodes(cursor, conn, updates):
-    query = "UPDATE outcodes SET r_id = %s, display_name = %s WHERE outcode = %s"
-    cursor.executemany(query, updates)
-    conn.commit()
+    """
+    updates: list of tuples (r_id, display_name, original_outcode)
+    Uses lower(outcode) = lower(%s) so case mismatch is handled.
+    """
+    query = "UPDATE outcodes SET r_id = %s, display_name = %s WHERE lower(outcode) = lower(%s)"
+    try:
+        cursor.executemany(query, updates)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Batch update failed: {e}")
 
 def fetch_data_for_outcode(outcode):
     params = {"query": outcode, "limit": 20, "exclude": "STREET"}
     try:
-        response = requests.get(API_URL, params=params)
-        response.raise_for_status()
-        return response.json().get("matches", [])
+        resp = requests.get(API_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("matches", [])
     except requests.RequestException as e:
         print(f"Error fetching data for {outcode}: {e}")
         return []
@@ -76,38 +84,63 @@ def process_outcodes_batch():
 
     outcodes = fetch_random_outcodes(cursor)
     if not outcodes:
-        print("All outcodes have been processed.")
+        print("No outcodes to process (all done or none match criteria).")
         cursor.close()
         conn.close()
         return
 
+    print(f"Processing {len(outcodes)} outcodes this run.")
+
+    # We'll collect updates per outcode and execute them in small batches
+    all_updates = []
+
     for outcode in outcodes:
-        print(f"Fetching data for outcode: {outcode}")
+        print(f"> Querying API for outcode: {outcode}")
         matches = fetch_data_for_outcode(outcode)
 
-        updates = [
-            (match["id"], match["displayName"], outcode)
-            for match in matches if match["type"] == "OUTCODE"
-        ]
+        # Find the first OUTCODE match (if any)
+        outcode_match = next((m for m in matches if m.get("type") == "OUTCODE"), None)
 
-        if updates:
-            update_outcodes(cursor, conn, updates)
-            print(f"Updated {len(updates)} rows for outcode: {outcode}")
+        if outcode_match:
+            match_id = outcode_match.get("id")
+            display_name = outcode_match.get("displayName")
+            # Try to cast numeric IDs to int, otherwise leave as None (NULL)
+            try:
+                match_id_val = int(match_id)
+            except Exception:
+                # some ids might be non-numeric (unlikely for OUTCODE), store NULL if not int
+                match_id_val = None
+
+            all_updates.append((match_id_val, display_name, outcode))
+            print(f"  -> Found OUTCODE: id={match_id}, displayName={display_name}")
         else:
-            print(f"No valid matches for outcode: {outcode}")
+            # Optional: mark as processed but no match found so you won't retry forever
+            all_updates.append((MARK_NO_MATCH_ID, None, outcode))
+            print(f"  -> No OUTCODE match found for {outcode}; marking r_id={MARK_NO_MATCH_ID}")
 
         time.sleep(SLEEP_BETWEEN)
+
+        # To avoid very large executemany payloads, flush every 200 updates
+        if len(all_updates) >= 200:
+            print(f"Flushing {len(all_updates)} updates to DB...")
+            update_outcodes(cursor, conn, all_updates)
+            all_updates = []
+
+    # Flush remaining updates
+    if all_updates:
+        print(f"Flushing final {len(all_updates)} updates to DB...")
+        update_outcodes(cursor, conn, all_updates)
 
     cursor.close()
     conn.close()
     print("Batch processing completed.")
 
-# DAG definition
+# DAG
 with DAG(
     dag_id="process_rightmove_outcodes",
     default_args=default_args,
     start_date=datetime(2025, 9, 28),
-    schedule="0 2 * * 0",   # Every Sunday 2 AM
+    schedule="0 2 * * 0",   # every Sunday at 02:00
     catchup=False,
     tags=["rightmove", "outcodes"],
 ) as dag:
@@ -115,14 +148,13 @@ with DAG(
     create_table_task = PythonOperator(
         task_id="ensure_table_exists",
         python_callable=ensure_table_exists,
-        on_failure_callback=on_failure
+        on_failure_callback=on_failure,
     )
 
     process_batch_task = PythonOperator(
         task_id="process_outcodes_batch",
         python_callable=process_outcodes_batch,
-        on_failure_callback=on_failure
+        on_failure_callback=on_failure,
     )
 
-    # Task dependencies
     create_table_task >> process_batch_task
