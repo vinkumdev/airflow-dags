@@ -38,7 +38,7 @@ def ensure_table_exists():
             outcode TEXT PRIMARY KEY,
             area_id BIGINT,
             display_name TEXT,
-            last_updated_sale DATE,
+            last_updated_sale DATE
         );
     """)
     conn.commit()
