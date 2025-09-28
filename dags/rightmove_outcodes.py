@@ -49,7 +49,7 @@ def ensure_table_exists():
 # Fetch a batch of random unprocessed outcodes
 def fetch_random_outcodes(cursor, limit=BATCH_SIZE):
     cursor.execute(
-        "SELECT outcode FROM outcodes WHERE area_id IS NULL OR area_id = 0 ORDER BY RANDOM() LIMIT %s",
+        "SELECT rightmove_areas FROM outcodes WHERE area_id IS NULL OR area_id = 0 ORDER BY RANDOM() LIMIT %s",
         (limit,),
     )
     return [row[0] for row in cursor.fetchall()]
@@ -60,7 +60,7 @@ def update_outcodes(cursor, conn, updates):
     updates: list of tuples (r_id, display_name, original_outcode)
     Uses lower(outcode) = lower(%s) so case mismatch is handled.
     """
-    query = "UPDATE outcodes SET area_id = %s, display_name = %s WHERE lower(outcode) = lower(%s)"
+    query = "UPDATE rightmove_areas SET area_id = %s, display_name = %s WHERE lower(outcode) = lower(%s)"
     try:
         cursor.executemany(query, updates)
         conn.commit()
