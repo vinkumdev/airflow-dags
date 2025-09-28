@@ -34,10 +34,11 @@ def ensure_table_exists():
     conn = hook.get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS outcodes (
+        CREATE TABLE IF NOT EXISTS rightmove_areas (
             outcode TEXT PRIMARY KEY,
-            r_id BIGINT,
-            display_name TEXT
+            area_id BIGINT,
+            display_name TEXT,
+            last_updated_sale DATE,
         );
     """)
     conn.commit()
@@ -48,7 +49,7 @@ def ensure_table_exists():
 # Fetch a batch of random unprocessed outcodes
 def fetch_random_outcodes(cursor, limit=BATCH_SIZE):
     cursor.execute(
-        "SELECT outcode FROM outcodes WHERE r_id IS NULL OR r_id = 0 ORDER BY RANDOM() LIMIT %s",
+        "SELECT outcode FROM outcodes WHERE area_id IS NULL OR area_id = 0 ORDER BY RANDOM() LIMIT %s",
         (limit,),
     )
     return [row[0] for row in cursor.fetchall()]
@@ -59,7 +60,7 @@ def update_outcodes(cursor, conn, updates):
     updates: list of tuples (r_id, display_name, original_outcode)
     Uses lower(outcode) = lower(%s) so case mismatch is handled.
     """
-    query = "UPDATE outcodes SET r_id = %s, display_name = %s WHERE lower(outcode) = lower(%s)"
+    query = "UPDATE outcodes SET area_id = %s, display_name = %s WHERE lower(outcode) = lower(%s)"
     try:
         cursor.executemany(query, updates)
         conn.commit()
@@ -116,7 +117,7 @@ def process_outcodes_batch():
         else:
             # Optional: mark as processed but no match found so you won't retry forever
             all_updates.append((MARK_NO_MATCH_ID, None, outcode))
-            print(f"  -> No OUTCODE match found for {outcode}; marking r_id={MARK_NO_MATCH_ID}")
+            print(f"  -> No OUTCODE match found for {outcode}; marking area_id={MARK_NO_MATCH_ID}")
 
         time.sleep(SLEEP_BETWEEN)
 
