@@ -118,36 +118,51 @@ with DAG(
                 rows_in_buffer = 0
 
                 # Clean chunk
-                df_chunk['transaction_unique_identifier'] = df_chunk['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
-                df_chunk['date_of_transfer'] = pd.to_datetime(df_chunk['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
+                df_chunk['transaction_unique_identifier'] = df_chunk['transaction_unique_identifier'].str.replace(
+                    r"[{}]", "", regex=True)
+                df_chunk['date_of_transfer'] = pd.to_datetime(df_chunk['date_of_transfer'],
+                                                              errors='coerce').dt.strftime('%Y%m%d').astype(float)
                 df_chunk['price'] = pd.to_numeric(df_chunk['price'], errors='coerce')
-                df_chunk = df_chunk.dropna(subset=['transaction_unique_identifier','date_of_transfer','price'])
+                df_chunk = df_chunk.dropna(
+                    subset=['transaction_unique_identifier', 'date_of_transfer', 'price', 'postcode'])
+
+                # **Filter only Oxford properties**
+                df_chunk = df_chunk[df_chunk['postcode'].str.startswith("OX")]
 
                 # Batch insert
-                batch_rows = [tuple(x) for x in df_chunk.to_numpy()]
-                try:
-                    execute_values(cursor, f"""
-                        INSERT INTO {TABLE_NAME} (
-                            transaction_unique_identifier, price, date_of_transfer, postcode,
-                            property_type, old_new, duration, paon, saon, street,
-                            locality, town_city, district, county, ppd_category_type, record_status
-                        ) VALUES %s
-                    """, batch_rows)
-                    conn.commit()
-                    print(f"Inserted batch of {len(batch_rows)} rows")
-                except Exception as e:
-                    conn.rollback()
-                    print(f"Batch insert failed: {e}")
+                if not df_chunk.empty:
+                    batch_rows = [tuple(x) for x in df_chunk.to_numpy()]
+                    try:
+                        execute_values(cursor, f"""
+                            INSERT INTO {TABLE_NAME} (
+                                transaction_unique_identifier, price, date_of_transfer, postcode,
+                                property_type, old_new, duration, paon, saon, street,
+                                locality, town_city, district, county, ppd_category_type, record_status
+                            ) VALUES %s
+                        """, batch_rows)
+                        conn.commit()
+                        print(f"Inserted batch of {len(batch_rows)} Oxford rows")
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"Batch insert failed: {e}")
 
         # Insert remaining rows
         if buffer.strip():
             df_chunk = pd.read_csv(io.StringIO(buffer), header=None, names=COLUMN_NAMES)
-            df_chunk['transaction_unique_identifier'] = df_chunk['transaction_unique_identifier'].str.replace(r"[{}]", "", regex=True)
-            df_chunk['date_of_transfer'] = pd.to_datetime(df_chunk['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
+            df_chunk['transaction_unique_identifier'] = df_chunk['transaction_unique_identifier'].str.replace(r"[{}]",
+                                                                                                              "",
+                                                                                                              regex=True)
+            df_chunk['date_of_transfer'] = pd.to_datetime(df_chunk['date_of_transfer'], errors='coerce').dt.strftime(
+                '%Y%m%d').astype(float)
             df_chunk['price'] = pd.to_numeric(df_chunk['price'], errors='coerce')
-            df_chunk = df_chunk.dropna(subset=['transaction_unique_identifier','date_of_transfer','price'])
-            batch_rows = [tuple(x) for x in df_chunk.to_numpy()]
-            if batch_rows:
+            df_chunk = df_chunk.dropna(
+                subset=['transaction_unique_identifier', 'date_of_transfer', 'price', 'postcode'])
+
+            # **Filter only Oxford properties**
+            df_chunk = df_chunk[df_chunk['postcode'].str.startswith("OX")]
+
+            if not df_chunk.empty:
+                batch_rows = [tuple(x) for x in df_chunk.to_numpy()]
                 execute_values(cursor, f"""
                     INSERT INTO {TABLE_NAME} (
                         transaction_unique_identifier, price, date_of_transfer, postcode,
@@ -156,11 +171,12 @@ with DAG(
                     ) VALUES %s
                 """, batch_rows)
                 conn.commit()
-                print(f"Inserted final batch of {len(batch_rows)} rows")
+                print(f"Inserted final batch of {len(batch_rows)} Oxford rows")
 
         cursor.close()
         conn.close()
-        print("CSV loaded successfully!")
+        print("CSV loaded successfully (Oxford data only)!")
+
 
     # Task 3: Send success notification
     def send_success_notification():
