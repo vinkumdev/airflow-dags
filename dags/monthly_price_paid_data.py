@@ -108,7 +108,7 @@ with DAG(
             f.write(response.text)
         print(f"CSV downloaded to {CSV_PATH}")
 
-    # Task 3: Load CSV into Postgres
+    # Task 3: Load CSV into Postgres (Oxford only)
     def load_csv_to_postgres():
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"{CSV_PATH} not found. Did download_csv task run successfully?")
@@ -122,8 +122,16 @@ with DAG(
         df['date_of_transfer'] = pd.to_datetime(df['date_of_transfer'], errors='coerce').dt.strftime('%Y%m%d').astype(float)
         df['price'] = pd.to_numeric(df['price'], errors='coerce')
 
-        # Keep only essential rows
-        df = df.dropna(subset=['transaction_unique_identifier', 'date_of_transfer', 'price'])
+        # Drop rows with missing critical fields
+        df = df.dropna(subset=['transaction_unique_identifier', 'date_of_transfer', 'price', 'postcode'])
+
+        # ✅ Keep only Oxford properties (postcode starts with 'OX')
+        df = df[df['postcode'].str.startswith("OX", na=False)]
+        print(f"Filtered down to {len(df)} Oxford rows.")
+
+        if df.empty:
+            print("No Oxford records found in this update.")
+            return
 
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         conn = hook.get_conn()
@@ -146,14 +154,14 @@ with DAG(
                 """
                 execute_values(cursor, query, rows)
                 conn.commit()
-                print(f"Inserted batch {i} to {i + len(rows)} successfully.")
+                print(f"Inserted Oxford batch {i} to {i + len(rows)} successfully.")
             except Exception as e:
                 conn.rollback()
                 print(f"Batch {i} failed due to {e}. Skipping this batch and continuing.")
 
         cursor.close()
         conn.close()
-        print("CSV loaded into Postgres successfully.")
+        print("Oxford data loaded into Postgres successfully.")
 
         # Delete CSV after loading
         try:
@@ -164,7 +172,7 @@ with DAG(
 
     # Task 4: Send success notification
     def send_success_notification():
-        send_discord_message("✅ Price Paid Data loaded successfully!")
+        send_discord_message("✅ Oxford Price Paid Data (Monthly Update) loaded successfully!")
 
     # Operators
     create_table_task = PythonOperator(
